@@ -1,0 +1,12 @@
+{
+  "name": "ai-mock-interviewer",
+  "version": "1.0.0",
+  "description": "Interactive AI Mock Interviewer web application",
+  "private": true,
+  "scripts": {
+    "start:backend": "npm --prefix backend start",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build"
+  }
+}
