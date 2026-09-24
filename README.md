@@ -6,7 +6,26 @@ Unlike static quiz apps, **AI Mock Interviewer** engages candidates in a true mu
 
 ---
 
-## 🌟 Phase 1 Features
+## 🌟 Phase 2 Features (Current)
+
+- **🔐 User Accounts & Authentication**:
+  - Secure registration (`POST /api/auth/signup`) and authentication (`POST /api/auth/login`).
+  - Passwords salted and hashed with **bcrypt** (salt rounds: 10).
+  - Stateless JSON Web Tokens (**JWT**) for secure API requests.
+- **🗄️ Persistent Database Storage (MySQL)**:
+  - Connection pooling via `mysql2/promise` for non-blocking concurrent requests.
+  - Automatic database and schema initialization on server startup (`backend/db/init.js`).
+  - Relational schema tracking `users`, interview `sessions`, and conversational `turns`.
+- **📂 Personal Session History ("My Sessions")**:
+  - Authenticated candidates can view all past mock interview sessions (`GET /api/sessions`).
+  - Complete drill-down view of past interview questions, candidate responses, and AI evaluation feedback.
+- **👥 Team Practice View ("Team Sessions")**:
+  - Shared practice board for 3 team members to inspect everyone's interview runs (`GET /api/sessions/team`).
+  - Promotes peer learning and interview strategy sharing across the team.
+
+---
+
+## 🌟 Phase 1 Features (Foundation)
 
 - **🎯 Role Selection**: Choose from popular technical roles (e.g., Backend Developer, Frontend Developer, Data Analyst) or input any custom role.
 - **📈 Difficulty Guidance System**: Select from **Junior**, **Mid**, or **Senior**. Server-side guidance strings adjust question depth, trade-off analysis, and system architecture expectations.
@@ -23,6 +42,7 @@ Unlike static quiz apps, **AI Mock Interviewer** engages candidates in a true mu
 
 - **Frontend**: [React](https://react.dev/) (v18), [Vite](https://vitejs.dev/), [Tailwind CSS](https://tailwindcss.com/), [Lucide React](https://lucide.dev/)
 - **Backend**: [Node.js](https://nodejs.org/), [Express](https://expressjs.com/), [CORS](https://www.npmjs.com/package/cors), [dotenv](https://www.npmjs.com/package/dotenv)
+- **Database & Auth**: [MySQL](https://www.mysql.com/), [mysql2](https://www.npmjs.com/package/mysql2), [bcrypt](https://www.npmjs.com/package/bcrypt), [jsonwebtoken](https://www.npmjs.com/package/jsonwebtoken)
 - **AI / LLM**: [Google Gemini API](https://aistudio.google.com/) (`@google/generative-ai`) calling models (`gemini-2.5-flash`, `gemini-1.5-flash`) with structured JSON mode from backend only.
 
 ---
@@ -32,15 +52,22 @@ Unlike static quiz apps, **AI Mock Interviewer** engages candidates in a true mu
 ```
 AI_Mock_Interviewer/
 ├── backend/
-│   ├── .env.example             # Template for environment variables
-│   ├── .env                     # Local API keys (git-ignored)
+│   ├── .env.example             # Template for environment variables (DB, Gemini, JWT)
+│   ├── .env                     # Local API keys and credentials (git-ignored)
 │   ├── .gitignore               # Backend gitignore
 │   ├── package.json             # Backend dependencies & scripts
-│   ├── server.js                # Express app setup, CORS, and health check
+│   ├── server.js                # Express app setup, auth/interview routing, DB init
+│   ├── db/
+│   │   ├── connection.js        # mysql2 connection pool
+│   │   ├── schema.sql           # users, sessions, and turns schema definitions
+│   │   └── init.js              # Startup database and table initialization
+│   ├── middleware/
+│   │   └── auth.js              # JWT Bearer token authentication middleware
 │   ├── prompts/
 │   │   └── interviewPrompts.js  # Difficulty guidance & LLM prompt templates
 │   ├── routes/
-│   │   └── interviewRoutes.js   # /api/generate-question & /api/evaluate-answer
+│   │   ├── authRoutes.js        # /api/auth/signup & /api/auth/login
+│   │   └── interviewRoutes.js   # /api/generate-question, /api/evaluate-answer, /api/sessions
 │   └── services/
 │       └── geminiService.js     # Gemini API integration & JSON parser
 ├── frontend/
@@ -51,10 +78,12 @@ AI_Mock_Interviewer/
 │   ├── postcss.config.js        # PostCSS configuration
 │   └── src/
 │       ├── main.jsx             # React entry point
-│       ├── App.jsx              # Main state machine & multi-turn state
+│       ├── App.jsx              # Main state machine, auth state & navigation
 │       ├── index.css            # Tailwind & glassmorphism styles
 │       └── components/
-│           ├── Header.jsx       # Navigation bar & session indicator
+│           ├── Header.jsx       # Navigation bar, user profile & logout
+│           ├── AuthForm.jsx     # Login & Signup toggle form
+│           ├── SessionsList.jsx # My Sessions & Team Sessions historical view
 │           ├── InterviewSetup.jsx# Role & difficulty selector
 │           ├── TranscriptView.jsx# Chronological auto-scrolling transcript
 │           └── AnswerInput.jsx   # Answer typing textarea & submit trigger
@@ -94,13 +123,22 @@ AI_Mock_Interviewer/
      cp .env.example .env
      ```
 
-4. Open `backend/.env` and replace `your_gemini_api_key_here` with your real Gemini API key:
+4. Open `backend/.env` and configure your API keys and MySQL credentials:
    ```env
    GEMINI_API_KEY=AIzaSy...your_real_key_here
    PORT=5000
+
+   # MySQL Database Configuration
+   DB_HOST=localhost
+   DB_USER=root
+   DB_PASSWORD=your_mysql_password
+   DB_NAME=ai_mock_interviewer
+
+   # JWT Secret Key
+   JWT_SECRET=your_jwt_secret_key_here
    ```
 
-5. Start the backend server:
+5. Start the backend server (automatically executes `schema.sql` on startup):
    ```bash
    # Development mode with auto-reload:
    npm run dev
@@ -142,13 +180,59 @@ Health check to verify server status and whether `GEMINI_API_KEY` is loaded.
   ```json
   {
     "status": "ok",
-    "timestamp": "2026-09-22T05:25:00.000Z",
+    "timestamp": "2026-09-24T08:00:00.000Z",
     "apiKeyConfigured": true
   }
   ```
 
-### `POST /api/generate-question`
-Generates an opening question tailored to the specified role and difficulty.
+### `POST /api/auth/signup`
+Creates a new candidate account.
+- **Request Body**:
+  ```json
+  {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "password": "StrongPassword123!"
+  }
+  ```
+- **Response** (201 Created):
+  ```json
+  {
+    "message": "Account created successfully.",
+    "token": "<JWT_TOKEN>",
+    "user": {
+      "id": 1,
+      "name": "Jane Doe",
+      "email": "jane@example.com"
+    }
+  }
+  ```
+
+### `POST /api/auth/login`
+Authenticates an existing candidate.
+- **Request Body**:
+  ```json
+  {
+    "email": "jane@example.com",
+    "password": "StrongPassword123!"
+  }
+  ```
+- **Response** (200 OK):
+  ```json
+  {
+    "message": "Logged in successfully.",
+    "token": "<JWT_TOKEN>",
+    "user": {
+      "id": 1,
+      "name": "Jane Doe",
+      "email": "jane@example.com"
+    }
+  }
+  ```
+
+### `POST /api/generate-question` (Requires Auth)
+Generates an opening question tailored to the specified role and difficulty, persisting a new session in MySQL.
+- **Headers**: `Authorization: Bearer <token>`
 - **Request Body**:
   ```json
   {
@@ -160,40 +244,84 @@ Generates an opening question tailored to the specified role and difficulty.
 - **Response**:
   ```json
   {
-    "question": "Can you explain the difference between synchronous and asynchronous operations in Node.js, and how the event loop handles them?"
+    "question": "Can you explain the difference between synchronous and asynchronous operations in Node.js?",
+    "sessionId": 42
   }
   ```
 
-### `POST /api/evaluate-answer`
-Evaluates the candidate's answer and produces a natural follow-up question.
+### `POST /api/evaluate-answer` (Requires Auth)
+Evaluates candidate answer and returns constructive feedback and next follow-up question, persisting the turn in MySQL.
+- **Headers**: `Authorization: Bearer <token>`
 - **Request Body**:
   ```json
   {
     "role": "Backend Developer",
     "difficulty": "Junior",
-    "question": "Can you explain the difference between synchronous and asynchronous operations in Node.js?",
-    "answer": "Synchronous code blocks execution until finished, whereas asynchronous code offloads work to background worker threads or libuv and uses callbacks/promises.",
-    "conversationHistory": [
-      { "role": "assistant", "content": "Can you explain the difference between synchronous and asynchronous operations in Node.js?" },
-      { "role": "user", "content": "Synchronous code blocks execution until finished, whereas asynchronous code offloads work to background worker threads or libuv and uses callbacks/promises." }
-    ]
+    "sessionId": 42,
+    "question": "Can you explain synchronous vs asynchronous operations in Node.js?",
+    "answer": "Synchronous operations block execution while async offloads tasks to libuv.",
+    "conversationHistory": [...]
   }
   ```
 - **Response**:
   ```json
   {
-    "feedback": "Great clarity and correctness! You accurately identified that synchronous code blocks the thread and mentioned libuv and promises for async execution.",
-    "nextQuestion": "Building on that, what happens if an unhandled promise rejection occurs in a production Node.js service?"
+    "feedback": "Great clarity and precision on libuv offloading...",
+    "nextQuestion": "How does the Node event loop handle Microtasks vs Macrotasks?"
   }
+  ```
+
+### `GET /api/sessions` (Requires Auth)
+Retrieves all historical interview sessions belonging to the authenticated user, newest first, with nested turns.
+- **Headers**: `Authorization: Bearer <token>`
+- **Response**:
+  ```json
+  [
+    {
+      "id": 42,
+      "user_id": 1,
+      "role": "Backend Developer",
+      "difficulty": "Junior",
+      "created_at": "2026-09-24T08:15:00.000Z",
+      "turns": [
+        {
+          "id": 101,
+          "session_id": 42,
+          "question": "...",
+          "answer": "...",
+          "feedback": "...",
+          "created_at": "2026-09-24T08:16:30.000Z"
+        }
+      ]
+    }
+  ]
+  ```
+
+### `GET /api/sessions/team` (Requires Auth)
+Retrieves all historical interview sessions across all 3 team members, newest first, with candidate name and nested turns.
+- **Headers**: `Authorization: Bearer <token>`
+- **Response**:
+  ```json
+  [
+    {
+      "id": 42,
+      "user_id": 1,
+      "user_name": "Jane Doe",
+      "user_email": "jane@example.com",
+      "role": "Backend Developer",
+      "difficulty": "Junior",
+      "created_at": "2026-09-24T08:15:00.000Z",
+      "turns": [...]
+    }
+  ]
   ```
 
 ---
 
 ## 🗺️ Roadmap (Future Phases)
 
-- **Phase 2**: Resume PDF upload & tailored questions matching specific resume skills.
-- **Phase 3**: Resume-to-role fit analysis & gap assessment report.
-- **Phase 4**: Audio/mic input with Web Speech API or whisper transcription.
-- **Phase 5**: Video camera self-view widget & body language / pacing reminders.
-- **Phase 6**: Full voice questions with text fallback (Text-to-Speech).
-- **Phase 7**: User accounts, interview history, and performance scorecards.
+- **Phase 3**: Resume PDF upload & tailored questions matching specific resume skills.
+- **Phase 4**: Resume-to-role fit analysis & gap assessment report.
+- **Phase 5**: Audio/mic input with Web Speech API or transcription.
+- **Phase 6**: Video camera self-view widget & body language / pacing reminders.
+- **Phase 7**: Full voice questions with text fallback (Text-to-Speech).

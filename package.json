@@ -4,9 +4,9 @@
   "description": "Interactive AI Mock Interviewer web application",
   "private": true,
   "scripts": {
-    "start:backend": "npm --prefix backend start",
-    "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "build:frontend": "npm --prefix frontend run build"
+    "start:backend": "npm --prefix Backend start",
+    "dev:backend": "npm --prefix Backend run dev",
+    "dev:frontend": "npm --prefix Frontend run dev",
+    "build:frontend": "npm --prefix Frontend run build"
   }
 }

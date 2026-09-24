@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import interviewRoutes from "./routes/interviewRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import { initDB } from "./db/init.js";
 
 // Load environment variables from .env file
 dotenv.config();
@@ -33,7 +35,10 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Interview API routes
+// Authentication routes (signup, login)
+app.use("/api/auth", authRoutes);
+
+// Interview & Session API routes
 app.use("/api", interviewRoutes);
 
 // 404 Catch-all handler
@@ -47,12 +52,15 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || "Internal server error." });
 });
 
-// Start the server
-app.listen(PORT, () => {
+// Start the server and initialize database tables
+app.listen(PORT, async () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "your_gemini_api_key_here") {
     console.warn("⚠️ Warning: GEMINI_API_KEY is not set in backend/.env!");
   } else {
     console.log("Gemini API key is configured.");
   }
+
+  // Initialize MySQL database schema
+  await initDB();
 });

@@ -3,13 +3,23 @@ import Header from './components/Header.jsx';
 import InterviewSetup from './components/InterviewSetup.jsx';
 import TranscriptView from './components/TranscriptView.jsx';
 import AnswerInput from './components/AnswerInput.jsx';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import AuthForm from './components/AuthForm.jsx';
+import SessionsList from './components/SessionsList.jsx';
+import { AlertCircle } from 'lucide-react';
 
 export default function App() {
-  // Session Configuration
+  // Authentication State (Stored in React state, NOT localStorage)
+  const [token, setToken] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // { id, name, email }
+
+  // App Navigation View: 'interview' | 'my-sessions' | 'team-sessions'
+  const [activeTab, setActiveTab] = useState('interview');
+
+  // Session Configuration & Persistence
   const [role, setRole] = useState('Backend Developer');
   const [difficulty, setDifficulty] = useState('Junior');
   const [isStarted, setIsStarted] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
 
   // Interview Loop State
   // conversationHistory tracks all { role: "assistant"|"user", content: string } turns
@@ -25,11 +35,39 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState(null);
 
   /**
+   * Called upon successful login or signup.
+   * Stores the JWT and user in React state.
+   */
+  const handleAuthSuccess = (newToken, user) => {
+    setToken(newToken);
+    setCurrentUser(user);
+    setErrorMessage(null);
+    setActiveTab('interview');
+  };
+
+  /**
+   * Clears the stored JWT, user info, and resets current interview state.
+   */
+  const handleLogout = () => {
+    setToken(null);
+    setCurrentUser(null);
+    setSessionId(null);
+    setIsStarted(false);
+    setTurns([]);
+    setCurrentQuestion('');
+    setConversationHistory([]);
+    setActiveTab('interview');
+    setErrorMessage(null);
+  };
+
+  /**
    * Starts a new interview session.
    * Calls POST /api/generate-question with { role, difficulty, conversationHistory: [] }
+   * and Authorization: Bearer <token>.
+   * Receives { question, sessionId }.
    */
   const handleStartInterview = async () => {
-    if (!role.trim()) return;
+    if (!role.trim() || !token) return;
 
     setIsLoading(true);
     setLoadingAction('generating');
@@ -37,11 +75,15 @@ export default function App() {
     setTurns([]);
     setConversationHistory([]);
     setCurrentQuestion('');
+    setSessionId(null);
 
     try {
       const response = await fetch('/api/generate-question', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           role: role.trim(),
           difficulty,
@@ -51,6 +93,11 @@ export default function App() {
 
       const data = await response.json();
 
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to generate opening question.');
       }
@@ -58,6 +105,11 @@ export default function App() {
       const initialQuestion = data.question;
       setCurrentQuestion(initialQuestion);
       setIsStarted(true);
+
+      // Save persistent sessionId returned by backend
+      if (data.sessionId) {
+        setSessionId(data.sessionId);
+      }
 
       // Add to conversationHistory
       setConversationHistory([
@@ -74,10 +126,11 @@ export default function App() {
 
   /**
    * Submits candidate's answer.
-   * Sends full conversationHistory to POST /api/evaluate-answer
+   * Sends full conversationHistory and sessionId to POST /api/evaluate-answer
+   * with Authorization: Bearer <token>.
    */
   const handleSubmitAnswer = async (answerText) => {
-    if (!answerText.trim() || !currentQuestion) return;
+    if (!answerText.trim() || !currentQuestion || !token) return;
 
     const questionAsked = currentQuestion;
     const turnId = Date.now();
@@ -105,17 +158,26 @@ export default function App() {
     try {
       const response = await fetch('/api/evaluate-answer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           question: questionAsked,
           answer: answerText,
           conversationHistory: updatedHistory,
           role,
-          difficulty
+          difficulty,
+          sessionId
         }),
       });
 
       const data = await response.json();
+
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to evaluate your answer.');
@@ -155,6 +217,7 @@ export default function App() {
     setTurns([]);
     setCurrentQuestion('');
     setConversationHistory([]);
+    setSessionId(null);
     setErrorMessage(null);
   };
 
@@ -165,16 +228,20 @@ export default function App() {
         difficulty={difficulty}
         isStarted={isStarted}
         onRestart={handleRestart}
+        currentUser={currentUser}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={handleLogout}
       />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col">
         {/* Error notification banner */}
         {errorMessage && (
           <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-sm flex items-start justify-between gap-3 shadow-lg shadow-rose-950/20 animate-fade-in">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-rose-300">Interview Session Notice</p>
+                <p className="font-semibold text-rose-300">Notice</p>
                 <p className="mt-0.5 text-xs text-rose-200/80">{errorMessage}</p>
               </div>
             </div>
@@ -187,37 +254,69 @@ export default function App() {
           </div>
         )}
 
-        {!isStarted ? (
-          <InterviewSetup
-            role={role}
-            setRole={setRole}
-            difficulty={difficulty}
-            setDifficulty={setDifficulty}
-            onStart={handleStartInterview}
-            isLoading={isLoading}
-          />
+        {/* Unauthenticated View: Login / Signup Form */}
+        {!token ? (
+          <AuthForm onAuthSuccess={handleAuthSuccess} />
         ) : (
-          <div className="flex-1 flex flex-col justify-between">
-            <div className="flex-1 pb-4">
-              <TranscriptView
-                turns={turns}
-                currentQuestion={currentQuestion}
-                isLoading={isLoading}
-                loadingAction={loadingAction}
-              />
-            </div>
-
-            {/* Answer Input is pinned at the bottom when an active question exists */}
-            {currentQuestion && (
-              <AnswerInput
-                onSubmit={handleSubmitAnswer}
-                isLoading={isLoading}
-                disabled={Boolean(errorMessage && !currentQuestion)}
+          /* Authenticated Views */
+          <>
+            {/* View 1: My Sessions */}
+            {activeTab === 'my-sessions' && (
+              <SessionsList
+                token={token}
+                isTeamView={false}
+                onStartNewInterview={() => setActiveTab('interview')}
               />
             )}
-          </div>
+
+            {/* View 2: Team Sessions */}
+            {activeTab === 'team-sessions' && (
+              <SessionsList
+                token={token}
+                isTeamView={true}
+                onStartNewInterview={() => setActiveTab('interview')}
+              />
+            )}
+
+            {/* View 3: Interview Practice (Phase 1 core flow) */}
+            {activeTab === 'interview' && (
+              <>
+                {!isStarted ? (
+                  <InterviewSetup
+                    role={role}
+                    setRole={setRole}
+                    difficulty={difficulty}
+                    setDifficulty={setDifficulty}
+                    onStart={handleStartInterview}
+                    isLoading={isLoading}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col justify-between">
+                    <div className="flex-1 pb-4">
+                      <TranscriptView
+                        turns={turns}
+                        currentQuestion={currentQuestion}
+                        isLoading={isLoading}
+                        loadingAction={loadingAction}
+                      />
+                    </div>
+
+                    {/* Answer Input is pinned at the bottom when an active question exists */}
+                    {currentQuestion && (
+                      <AnswerInput
+                        onSubmit={handleSubmitAnswer}
+                        isLoading={isLoading}
+                        disabled={Boolean(errorMessage && !currentQuestion)}
+                      />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </>
         )}
       </main>
     </div>
   );
 }
+
