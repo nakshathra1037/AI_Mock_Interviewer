@@ -34,7 +34,10 @@ export default function InterviewSetup({
   difficulty,
   setDifficulty,
   onStart,
-  isLoading
+  isLoading,
+  hasResume = false,
+  useResume = false,
+  setUseResume
 }) {
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -132,6 +135,47 @@ export default function InterviewSetup({
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Resume-Tailored Questions Toggle */}
+          <div
+            className={`p-4 rounded-xl border transition-all ${
+              hasResume
+                ? 'bg-slate-900/60 border-slate-700/80 hover:border-indigo-500/50'
+                : 'bg-slate-900/30 border-slate-800/80 opacity-70'
+            }`}
+          >
+            <label className={`flex items-start gap-3 ${hasResume ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+              <input
+                type="checkbox"
+                id="tailor-resume-checkbox"
+                disabled={!hasResume}
+                checked={hasResume && useResume}
+                onChange={(e) => setUseResume && setUseResume(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 disabled:cursor-not-allowed"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-200">
+                    Tailor questions to my resume
+                  </span>
+                  {hasResume ? (
+                    <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Resume Active
+                    </span>
+                  ) : (
+                    <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
+                      Upload Required
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {hasResume
+                    ? 'The AI interviewer will ask questions that reference your actual projects, technologies, and achievements.'
+                    : 'Upload your resume in the Resume tab to unlock questions tailored to your specific background.'}
+                </p>
+              </div>
+            </label>
           </div>
 
           {/* Submit Button */}

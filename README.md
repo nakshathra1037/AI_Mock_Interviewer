@@ -6,7 +6,23 @@ Unlike static quiz apps, **AI Mock Interviewer** engages candidates in a true mu
 
 ---
 
-## 🌟 Phase 2 Features (Current)
+## 🌟 Phase 3 Features (Current)
+
+- **📄 Persistent Resume Upload & Extraction**:
+  - Upload PDF or DOCX resumes (up to 5MB) parsed into plain text using `pdf-parse` and `mammoth` (`POST /api/resume/upload`).
+  - Stored in MySQL `resumes` table with 1-to-1 unique mapping per candidate (replaces on re-upload).
+  - Retrieve current resume metadata (`GET /api/resume`).
+- **🎯 Resume-Tailored Mock Interviews**:
+  - "Tailor questions to my resume" toggle on the Practice screen (`POST /api/generate-question` with `useResume: true`).
+  - AI references specific projects, technologies, and achievements explicitly mentioned in the candidate's resume.
+- **🔍 Job Description Fit Analysis**:
+  - Paste any target job description (`POST /api/resume/fit-analysis`) to receive an instant fit score percentage, matching skills, missing technical requirements, and actionable improvement recommendations.
+- **💡 AI Role Suitability Recommendations**:
+  - One-click career alignment check (`POST /api/resume/role-suggestions`) recommending 2–3 roles tailored to the resume's demonstrated strengths and project stack, with direct links to practice each role.
+
+---
+
+## 🌟 Phase 2 Features (Auth & Persistence)
 
 - **🔐 User Accounts & Authentication**:
   - Secure registration (`POST /api/auth/signup`) and authentication (`POST /api/auth/login`).
@@ -42,6 +58,7 @@ Unlike static quiz apps, **AI Mock Interviewer** engages candidates in a true mu
 
 - **Frontend**: [React](https://react.dev/) (v18), [Vite](https://vitejs.dev/), [Tailwind CSS](https://tailwindcss.com/), [Lucide React](https://lucide.dev/)
 - **Backend**: [Node.js](https://nodejs.org/), [Express](https://expressjs.com/), [CORS](https://www.npmjs.com/package/cors), [dotenv](https://www.npmjs.com/package/dotenv)
+- **Document & File Processing**: [multer](https://www.npmjs.com/package/multer), [pdf-parse](https://www.npmjs.com/package/pdf-parse), [mammoth](https://www.npmjs.com/package/mammoth)
 - **Database & Auth**: [MySQL](https://www.mysql.com/), [mysql2](https://www.npmjs.com/package/mysql2), [bcrypt](https://www.npmjs.com/package/bcrypt), [jsonwebtoken](https://www.npmjs.com/package/jsonwebtoken)
 - **AI / LLM**: [Google Gemini API](https://aistudio.google.com/) (`@google/generative-ai`) calling models (`gemini-2.5-flash`, `gemini-1.5-flash`) with structured JSON mode from backend only.
 
@@ -231,14 +248,15 @@ Authenticates an existing candidate.
   ```
 
 ### `POST /api/generate-question` (Requires Auth)
-Generates an opening question tailored to the specified role and difficulty, persisting a new session in MySQL.
+Generates an opening question tailored to the specified role and difficulty, optionally customized to the candidate's uploaded resume, persisting a new session in MySQL.
 - **Headers**: `Authorization: Bearer <token>`
 - **Request Body**:
   ```json
   {
     "role": "Backend Developer",
     "difficulty": "Junior",
-    "conversationHistory": []
+    "conversationHistory": [],
+    "useResume": true
   }
   ```
 - **Response**:
@@ -316,12 +334,74 @@ Retrieves all historical interview sessions across all 3 team members, newest fi
   ]
   ```
 
+### `POST /api/resume/upload` (Requires Auth)
+Uploads and parses a PDF or DOCX resume, extracting plain text and storing it in MySQL.
+- **Headers**: `Authorization: Bearer <token>`, `Content-Type: multipart/form-data`
+- **Form Data**: `resume: <file.pdf | file.docx>` (Max 5MB)
+- **Response**:
+  ```json
+  {
+    "message": "Resume uploaded",
+    "fileName": "Jane_Doe_Resume.pdf"
+  }
+  ```
+
+### `GET /api/resume` (Requires Auth)
+Retrieves the logged-in user's stored resume status and metadata.
+- **Headers**: `Authorization: Bearer <token>`
+- **Response**:
+  ```json
+  {
+    "hasResume": true,
+    "fileName": "Jane_Doe_Resume.pdf",
+    "resumeText": "...",
+    "uploadedAt": "2026-09-24T10:30:00.000Z"
+  }
+  ```
+
+### `POST /api/resume/fit-analysis` (Requires Auth)
+Compares the candidate's stored resume against a target job description and returns an evaluated fit score, matching skills, gaps, and recommendations.
+- **Headers**: `Authorization: Bearer <token>`
+- **Request Body**:
+  ```json
+  {
+    "jobDescription": "Seeking a Backend Engineer proficient in Node.js, PostgreSQL, Docker, and AWS microservices..."
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "fitScore": "85%",
+    "matchingSkills": ["Node.js", "PostgreSQL", "REST APIs"],
+    "missingSkills": ["Kubernetes", "AWS"],
+    "suggestions": "Highlight containerization and cloud orchestration experience in your project descriptions to bridge the gap."
+  }
+  ```
+
+### `POST /api/resume/role-suggestions` (Requires Auth)
+Analyzes the candidate's stored resume text and returns 2–3 recommended roles suited to their skills and projects.
+- **Headers**: `Authorization: Bearer <token>`
+- **Response**:
+  ```json
+  {
+    "recommendations": [
+      {
+        "role": "Full Stack Engineer",
+        "reasoning": "Strong demonstrated balance of frontend React components and backend Node/MySQL service development."
+      },
+      {
+        "role": "Backend Platform Engineer",
+        "reasoning": "Extensive experience designing REST APIs, database queries, and asynchronous messaging architectures."
+      }
+    ]
+  }
+  ```
+
 ---
 
 ## 🗺️ Roadmap (Future Phases)
 
-- **Phase 3**: Resume PDF upload & tailored questions matching specific resume skills.
-- **Phase 4**: Resume-to-role fit analysis & gap assessment report.
-- **Phase 5**: Audio/mic input with Web Speech API or transcription.
-- **Phase 6**: Video camera self-view widget & body language / pacing reminders.
-- **Phase 7**: Full voice questions with text fallback (Text-to-Speech).
+- **Phase 4**: Audio/mic input with Web Speech API or transcription.
+- **Phase 5**: Video camera self-view widget & body language / pacing reminders.
+- **Phase 6**: Full voice questions with text fallback (Text-to-Speech).
+- **Phase 7**: Comprehensive performance scorecards & analytics.

@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import interviewRoutes from "./routes/interviewRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import resumeRoutes from "./routes/resumeRoutes.js";
 import { initDB } from "./db/init.js";
 
 // Load environment variables from .env file
@@ -37,6 +38,9 @@ app.get("/api/health", (req, res) => {
 
 // Authentication routes (signup, login)
 app.use("/api/auth", authRoutes);
+
+// Resume management & analysis routes
+app.use("/api/resume", resumeRoutes);
 
 // Interview & Session API routes
 app.use("/api", interviewRoutes);

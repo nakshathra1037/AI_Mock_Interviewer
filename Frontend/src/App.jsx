@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from './components/Header.jsx';
 import InterviewSetup from './components/InterviewSetup.jsx';
 import TranscriptView from './components/TranscriptView.jsx';
 import AnswerInput from './components/AnswerInput.jsx';
 import AuthForm from './components/AuthForm.jsx';
 import SessionsList from './components/SessionsList.jsx';
+import ResumeManager from './components/ResumeManager.jsx';
 import { AlertCircle } from 'lucide-react';
 
 export default function App() {
@@ -12,8 +13,12 @@ export default function App() {
   const [token, setToken] = useState(null);
   const [currentUser, setCurrentUser] = useState(null); // { id, name, email }
 
-  // App Navigation View: 'interview' | 'my-sessions' | 'team-sessions'
+  // App Navigation View: 'interview' | 'resume' | 'my-sessions' | 'team-sessions'
   const [activeTab, setActiveTab] = useState('interview');
+
+  // Resume State (Phase 3)
+  const [resumeInfo, setResumeInfo] = useState({ hasResume: false, fileName: null });
+  const [useResume, setUseResume] = useState(false);
 
   // Session Configuration & Persistence
   const [role, setRole] = useState('Backend Developer');
@@ -35,6 +40,44 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState(null);
 
   /**
+   * Fetches stored resume information for current user
+   */
+  const fetchResumeInfo = async () => {
+    if (!token) return;
+
+    try {
+      const response = await fetch('/api/resume', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setResumeInfo({
+          hasResume: Boolean(data.hasResume),
+          fileName: data.fileName || null
+        });
+        if (data.hasResume) {
+          setUseResume(true);
+        }
+      } else {
+        setResumeInfo({ hasResume: false, fileName: null });
+        setUseResume(false);
+      }
+    } catch (err) {
+      console.warn('Could not retrieve resume status:', err.message);
+    }
+  };
+
+  // Re-fetch resume status whenever authenticated
+  useEffect(() => {
+    if (token) {
+      fetchResumeInfo();
+    }
+  }, [token]);
+
+  /**
    * Called upon successful login or signup.
    * Stores the JWT and user in React state.
    */
@@ -52,6 +95,8 @@ export default function App() {
     setToken(null);
     setCurrentUser(null);
     setSessionId(null);
+    setResumeInfo({ hasResume: false, fileName: null });
+    setUseResume(false);
     setIsStarted(false);
     setTurns([]);
     setCurrentQuestion('');
@@ -87,7 +132,8 @@ export default function App() {
         body: JSON.stringify({
           role: role.trim(),
           difficulty,
-          conversationHistory: []
+          conversationHistory: [],
+          useResume: Boolean(useResume && resumeInfo.hasResume)
         }),
       });
 
@@ -260,7 +306,20 @@ export default function App() {
         ) : (
           /* Authenticated Views */
           <>
-            {/* View 1: My Sessions */}
+            {/* View 1: Resume Intelligence (Phase 3) */}
+            {activeTab === 'resume' && (
+              <ResumeManager
+                token={token}
+                resumeInfo={resumeInfo}
+                onRefreshResume={fetchResumeInfo}
+                onSelectRoleForPractice={(suggestedRole) => {
+                  setRole(suggestedRole);
+                  setActiveTab('interview');
+                }}
+              />
+            )}
+
+            {/* View 2: My Sessions */}
             {activeTab === 'my-sessions' && (
               <SessionsList
                 token={token}
@@ -269,7 +328,7 @@ export default function App() {
               />
             )}
 
-            {/* View 2: Team Sessions */}
+            {/* View 3: Team Sessions */}
             {activeTab === 'team-sessions' && (
               <SessionsList
                 token={token}
@@ -278,7 +337,7 @@ export default function App() {
               />
             )}
 
-            {/* View 3: Interview Practice (Phase 1 core flow) */}
+            {/* View 4: Interview Practice (Phase 1 core flow) */}
             {activeTab === 'interview' && (
               <>
                 {!isStarted ? (
@@ -289,6 +348,9 @@ export default function App() {
                     setDifficulty={setDifficulty}
                     onStart={handleStartInterview}
                     isLoading={isLoading}
+                    hasResume={resumeInfo.hasResume}
+                    useResume={useResume}
+                    setUseResume={setUseResume}
                   />
                 ) : (
                   <div className="flex-1 flex flex-col justify-between">

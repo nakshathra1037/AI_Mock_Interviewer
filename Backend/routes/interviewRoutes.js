@@ -2,7 +2,8 @@ import express from "express";
 import {
   DIFFICULTY_GUIDANCE,
   buildQuestionPrompt,
-  buildEvaluationPrompt
+  buildEvaluationPrompt,
+  buildResumeTailoredQuestionPrompt
 } from "../prompts/interviewPrompts.js";
 import { callGeminiJSON } from "../services/geminiService.js";
 import pool from "../db/connection.js";
@@ -15,12 +16,18 @@ router.use(authenticateToken);
 
 /**
  * POST /api/generate-question
- * Request Body: { role: string, difficulty: string, conversationHistory?: Array, sessionId?: number }
+ * Request Body: { role: string, difficulty: string, conversationHistory?: Array, sessionId?: number, useResume?: boolean }
  * Response: { question: string, sessionId?: number }
  */
 router.post("/generate-question", async (req, res) => {
   try {
-    const { role, difficulty, conversationHistory = [], sessionId: existingSessionId } = req.body;
+    const {
+      role,
+      difficulty,
+      conversationHistory = [],
+      sessionId: existingSessionId,
+      useResume = false
+    } = req.body;
 
     // Validate incoming parameters
     if (!role || typeof role !== "string" || !role.trim()) {
@@ -32,8 +39,35 @@ router.post("/generate-question", async (req, res) => {
       (lvl) => lvl.toLowerCase() === (difficulty || "").toLowerCase()
     ) || "Junior";
 
-    // Build question prompt with server-side difficulty guidance
-    const prompt = buildQuestionPrompt(role.trim(), normalizedDifficulty, conversationHistory);
+    let prompt;
+
+    // Check if user requested resume-tailored question generation
+    if (useResume) {
+      try {
+        const [resumeRows] = await pool.query(
+          "SELECT resume_text FROM resumes WHERE user_id = ? LIMIT 1",
+          [req.userId]
+        );
+
+        if (resumeRows && resumeRows.length > 0 && resumeRows[0].resume_text) {
+          prompt = buildResumeTailoredQuestionPrompt(
+            role.trim(),
+            normalizedDifficulty,
+            resumeRows[0].resume_text,
+            conversationHistory
+          );
+        } else {
+          // Fallback if no resume uploaded
+          prompt = buildQuestionPrompt(role.trim(), normalizedDifficulty, conversationHistory);
+        }
+      } catch (dbErr) {
+        console.warn("Could not query resume, falling back to standard prompt:", dbErr.message);
+        prompt = buildQuestionPrompt(role.trim(), normalizedDifficulty, conversationHistory);
+      }
+    } else {
+      // Build standard question prompt with server-side difficulty guidance
+      prompt = buildQuestionPrompt(role.trim(), normalizedDifficulty, conversationHistory);
+    }
 
     // Call Gemini API and receive parsed JSON
     const result = await callGeminiJSON(prompt);

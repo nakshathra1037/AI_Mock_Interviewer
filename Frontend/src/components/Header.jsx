@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, RotateCcw, Briefcase, Award, LogOut, User, Users, PlayCircle } from 'lucide-react';
+import { Bot, RotateCcw, Briefcase, Award, LogOut, User, Users, PlayCircle, FileText } from 'lucide-react';
 
 export default function Header({
   role,
@@ -23,14 +23,14 @@ export default function Header({
             <div className="flex items-center gap-2">
               <h1 className="font-bold text-lg text-slate-100 tracking-tight">AI Mock Interviewer</h1>
               <span className="text-[10px] uppercase font-semibold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                Phase 2
+                Phase 3
               </span>
             </div>
             <p className="text-xs text-slate-400 hidden sm:block">Conversational multi-turn technical practice</p>
           </div>
         </div>
 
-        {/* Phase 2 Navigation Bar (Visible when user is authenticated) */}
+        {/* Navigation Bar (Visible when user is authenticated) */}
         {currentUser && setActiveTab && (
           <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold">
             <button
@@ -43,6 +43,17 @@ export default function Header({
             >
               <PlayCircle className="w-3.5 h-3.5" />
               <span>Practice</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('resume')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                activeTab === 'resume'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Resume</span>
             </button>
             <button
               onClick={() => setActiveTab('my-sessions')}
@@ -137,7 +148,7 @@ export default function Header({
         <div className="md:hidden flex items-center justify-around py-2 border-t border-slate-800/60 bg-slate-950/95 px-4">
           <button
             onClick={() => setActiveTab('interview')}
-            className={`flex items-center gap-1 text-xs py-1 px-3 rounded-lg ${
+            className={`flex items-center gap-1 text-xs py-1 px-2.5 rounded-lg ${
               activeTab === 'interview'
                 ? 'bg-indigo-600 text-white font-semibold'
                 : 'text-slate-400'
@@ -147,19 +158,30 @@ export default function Header({
             <span>Practice</span>
           </button>
           <button
+            onClick={() => setActiveTab('resume')}
+            className={`flex items-center gap-1 text-xs py-1 px-2.5 rounded-lg ${
+              activeTab === 'resume'
+                ? 'bg-indigo-600 text-white font-semibold'
+                : 'text-slate-400'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Resume</span>
+          </button>
+          <button
             onClick={() => setActiveTab('my-sessions')}
-            className={`flex items-center gap-1 text-xs py-1 px-3 rounded-lg ${
+            className={`flex items-center gap-1 text-xs py-1 px-2.5 rounded-lg ${
               activeTab === 'my-sessions'
                 ? 'bg-indigo-600 text-white font-semibold'
                 : 'text-slate-400'
             }`}
           >
             <User className="w-3.5 h-3.5" />
-            <span>My Sessions</span>
+            <span>Sessions</span>
           </button>
           <button
             onClick={() => setActiveTab('team-sessions')}
-            className={`flex items-center gap-1 text-xs py-1 px-3 rounded-lg ${
+            className={`flex items-center gap-1 text-xs py-1 px-2.5 rounded-lg ${
               activeTab === 'team-sessions'
                 ? 'bg-indigo-600 text-white font-semibold'
                 : 'text-slate-400'
