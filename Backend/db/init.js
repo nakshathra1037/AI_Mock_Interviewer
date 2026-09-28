@@ -42,6 +42,20 @@ export async function initDB() {
     // Execute schema statements
     await tempConnection.query(schemaSql);
 
+    // Safe migration: Add questionType column to turns table if it doesn't already exist
+    try {
+      const [cols] = await tempConnection.query(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'turns' AND COLUMN_NAME = 'questionType'",
+        [database]
+      );
+      if (!cols || cols.length === 0) {
+        await tempConnection.query("ALTER TABLE turns ADD COLUMN questionType VARCHAR(20) NULL;");
+        console.log("✅ Column 'questionType' added to 'turns' table.");
+      }
+    } catch (migErr) {
+      console.warn("⚠️ Warning checking/adding questionType column:", migErr.message);
+    }
+
     console.log(`✅ MySQL database '${database}' and tables initialized successfully.`);
   } catch (err) {
     console.error("❌ MySQL initialization warning / error:", err.message);

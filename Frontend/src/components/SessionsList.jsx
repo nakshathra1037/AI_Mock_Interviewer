@@ -261,17 +261,72 @@ export default function SessionsList({ token, isTeamView = false, onStartNewInte
                           </div>
 
                           {/* AI Feedback */}
-                          {turn.feedback && (
-                            <div className="p-3.5 rounded-lg bg-indigo-950/30 border border-indigo-500/20 text-xs sm:text-sm text-slate-200">
-                              <div className="flex items-center gap-1.5 font-semibold text-indigo-300 text-xs mb-1">
-                                <CheckCircle className="w-3.5 h-3.5 text-indigo-400" />
-                                <span>AI Evaluation Feedback</span>
+                          {turn.feedback && (() => {
+                            let parsed = null;
+                            if (typeof turn.feedback === 'string') {
+                              try { parsed = JSON.parse(turn.feedback); } catch (e) { parsed = null; }
+                            } else if (typeof turn.feedback === 'object') {
+                              parsed = turn.feedback;
+                            }
+
+                            const catObj = parsed?.feedback || (parsed?.clarity ? parsed : null);
+
+                            if (catObj && (catObj.clarity || catObj.technicalAccuracy || catObj.structure || catObj.specificity)) {
+                              return (
+                                <div className="p-3.5 rounded-lg bg-indigo-950/30 border border-indigo-500/20 text-xs text-slate-200 space-y-3">
+                                  <div className="flex items-center justify-between font-semibold text-indigo-300 text-xs">
+                                    <div className="flex items-center gap-1.5">
+                                      <CheckCircle className="w-3.5 h-3.5 text-indigo-400" />
+                                      <span>AI Evaluation Feedback</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-normal">Structured Score</span>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {[
+                                      { k: 'clarity', l: 'Clarity' },
+                                      { k: 'technicalAccuracy', l: 'Technical Accuracy' },
+                                      { k: 'structure', l: 'Structure' },
+                                      { k: 'specificity', l: 'Specificity' }
+                                    ].map(({ k, l }) => {
+                                      const cat = catObj[k] || {};
+                                      return (
+                                        <div key={k} className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                                            <span className="font-semibold text-slate-300">{l}</span>
+                                            <span className="font-bold text-indigo-300">{cat.score || '-'}/5</span>
+                                          </div>
+                                          <p className="text-[11px] text-slate-400">{cat.comment}</p>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {parsed.starAnalysis && (
+                                    <div className="pt-2 border-t border-indigo-500/20 text-[11px]">
+                                      <span className="font-semibold text-indigo-300">STAR Analysis: </span>
+                                      <span>
+                                        Situation: {parsed.starAnalysis.situation ? '✅' : '❌'} •
+                                        Task: {parsed.starAnalysis.task ? '✅' : '❌'} •
+                                        Action: {parsed.starAnalysis.action ? '✅' : '❌'} •
+                                        Result: {parsed.starAnalysis.result ? '✅' : '❌'}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="p-3.5 rounded-lg bg-indigo-950/30 border border-indigo-500/20 text-xs sm:text-sm text-slate-200">
+                                <div className="flex items-center gap-1.5 font-semibold text-indigo-300 text-xs mb-1">
+                                  <CheckCircle className="w-3.5 h-3.5 text-indigo-400" />
+                                  <span>AI Evaluation Feedback</span>
+                                </div>
+                                <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">
+                                  {typeof turn.feedback === 'string' ? turn.feedback : JSON.stringify(turn.feedback)}
+                                </p>
                               </div>
-                              <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">
-                                {turn.feedback}
-                              </p>
-                            </div>
-                          )}
+                            );
+                          })()}
                         </div>
                       ))
                     )}

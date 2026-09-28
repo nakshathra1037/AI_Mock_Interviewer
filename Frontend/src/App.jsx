@@ -6,7 +6,8 @@ import AnswerInput from './components/AnswerInput.jsx';
 import AuthForm from './components/AuthForm.jsx';
 import SessionsList from './components/SessionsList.jsx';
 import ResumeManager from './components/ResumeManager.jsx';
-import { AlertCircle } from 'lucide-react';
+import SessionSummary from './components/SessionSummary.jsx';
+import { AlertCircle, Trophy, Loader2 } from 'lucide-react';
 
 export default function App() {
   // Authentication State (Stored in React state, NOT localStorage)
@@ -30,10 +31,15 @@ export default function App() {
   // conversationHistory tracks all { role: "assistant"|"user", content: string } turns
   const [conversationHistory, setConversationHistory] = useState([]);
   
-  // turns tracks the display list: { id, question, answer, feedback }
+  // turns tracks the display list: { id, question, questionType, answer, feedback }
   const [turns, setTurns] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
-  
+  const [currentQuestionType, setCurrentQuestionType] = useState('technical');
+
+  // Session Summary State (Phase 5)
+  const [sessionSummary, setSessionSummary] = useState(null);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+
   // UI & Loading State
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState('idle'); // 'generating' | 'evaluating' | 'idle'
@@ -100,6 +106,8 @@ export default function App() {
     setIsStarted(false);
     setTurns([]);
     setCurrentQuestion('');
+    setCurrentQuestionType('technical');
+    setSessionSummary(null);
     setConversationHistory([]);
     setActiveTab('interview');
     setErrorMessage(null);
@@ -109,7 +117,7 @@ export default function App() {
    * Starts a new interview session.
    * Calls POST /api/generate-question with { role, difficulty, conversationHistory: [] }
    * and Authorization: Bearer <token>.
-   * Receives { question, sessionId }.
+   * Receives { question, questionType, sessionId }.
    */
   const handleStartInterview = async () => {
     if (!role.trim() || !token) return;
@@ -120,6 +128,8 @@ export default function App() {
     setTurns([]);
     setConversationHistory([]);
     setCurrentQuestion('');
+    setCurrentQuestionType('technical');
+    setSessionSummary(null);
     setSessionId(null);
 
     try {
@@ -149,7 +159,9 @@ export default function App() {
       }
 
       const initialQuestion = data.question;
+      const initialQuestionType = data.questionType || 'technical';
       setCurrentQuestion(initialQuestion);
+      setCurrentQuestionType(initialQuestionType);
       setIsStarted(true);
 
       // Save persistent sessionId returned by backend
@@ -172,13 +184,14 @@ export default function App() {
 
   /**
    * Submits candidate's answer.
-   * Sends full conversationHistory and sessionId to POST /api/evaluate-answer
+   * Sends full conversationHistory, questionType, and sessionId to POST /api/evaluate-answer
    * with Authorization: Bearer <token>.
    */
   const handleSubmitAnswer = async (answerText) => {
     if (!answerText.trim() || !currentQuestion || !token) return;
 
     const questionAsked = currentQuestion;
+    const qType = currentQuestionType;
     const turnId = Date.now();
 
     // Prepare updated history with user's answer included
@@ -192,6 +205,7 @@ export default function App() {
     const newTurn = {
       id: turnId,
       question: questionAsked,
+      questionType: qType,
       answer: answerText,
       feedback: null
     };
@@ -214,7 +228,8 @@ export default function App() {
           conversationHistory: updatedHistory,
           role,
           difficulty,
-          sessionId
+          sessionId,
+          questionType: qType
         }),
       });
 
@@ -231,13 +246,15 @@ export default function App() {
 
       const { feedback, nextQuestion } = data;
 
-      // Update turn with feedback
+      // Update turn with structured feedback
       setTurns((prev) =>
         prev.map((t) => (t.id === turnId ? { ...t, feedback } : t))
       );
 
       // Set the next follow-up question
       setCurrentQuestion(nextQuestion);
+      // Fall back or determine next question type
+      setCurrentQuestionType(data.questionType || 'technical');
 
       // Update full history with assistant's next question
       setConversationHistory([
@@ -256,12 +273,55 @@ export default function App() {
   };
 
   /**
+   * Concludes the interview session and generates the overall performance summary.
+   * Calls POST /api/session-summary with { sessionId }.
+   */
+  const handleEndInterview = async () => {
+    if (!sessionId || !token || turns.length === 0) return;
+
+    setIsEndingSession(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch('/api/session-summary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ sessionId })
+      });
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate session summary.');
+      }
+
+      setSessionSummary(data);
+      setCurrentQuestion('');
+    } catch (err) {
+      console.error('Error concluding session summary:', err);
+      setErrorMessage(err.message || 'Could not generate session summary.');
+    } finally {
+      setIsEndingSession(false);
+    }
+  };
+
+  /**
    * Resets the interview state back to setup mode.
    */
   const handleRestart = () => {
     setIsStarted(false);
     setTurns([]);
     setCurrentQuestion('');
+    setCurrentQuestionType('technical');
+    setSessionSummary(null);
     setConversationHistory([]);
     setSessionId(null);
     setErrorMessage(null);
@@ -324,7 +384,10 @@ export default function App() {
               <SessionsList
                 token={token}
                 isTeamView={false}
-                onStartNewInterview={() => setActiveTab('interview')}
+                onStartNewInterview={() => {
+                  handleRestart();
+                  setActiveTab('interview');
+                }}
               />
             )}
 
@@ -333,11 +396,14 @@ export default function App() {
               <SessionsList
                 token={token}
                 isTeamView={true}
-                onStartNewInterview={() => setActiveTab('interview')}
+                onStartNewInterview={() => {
+                  handleRestart();
+                  setActiveTab('interview');
+                }}
               />
             )}
 
-            {/* View 4: Interview Practice (Phase 1 core flow) */}
+            {/* View 4: Interview Practice (Phase 1-5 core flow) */}
             {activeTab === 'interview' && (
               <>
                 {!isStarted ? (
@@ -352,8 +418,43 @@ export default function App() {
                     useResume={useResume}
                     setUseResume={setUseResume}
                   />
+                ) : sessionSummary ? (
+                  /* Phase 5 End-of-Session Summary Screen */
+                  <SessionSummary
+                    summary={sessionSummary}
+                    role={role}
+                    difficulty={difficulty}
+                    turnsCount={turns.length}
+                    onRestart={handleRestart}
+                  />
                 ) : (
                   <div className="flex-1 flex flex-col justify-between">
+                    {/* Header bar during active interview with End Interview button */}
+                    {turns.length > 0 && (
+                      <div className="mb-4 flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                        <span className="text-xs text-slate-400 font-medium">
+                          Completed Turns: <strong className="text-slate-200">{turns.length}</strong>
+                        </span>
+                        <button
+                          onClick={handleEndInterview}
+                          disabled={isLoading || isEndingSession}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all disabled:opacity-50"
+                        >
+                          {isEndingSession ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Generating Summary...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trophy className="w-3.5 h-3.5" />
+                              <span>End Interview</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex-1 pb-4">
                       <TranscriptView
                         turns={turns}
@@ -367,7 +468,7 @@ export default function App() {
                     {currentQuestion && (
                       <AnswerInput
                         onSubmit={handleSubmitAnswer}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isEndingSession}
                         disabled={Boolean(errorMessage && !currentQuestion)}
                       />
                     )}
@@ -381,4 +482,5 @@ export default function App() {
     </div>
   );
 }
+
 

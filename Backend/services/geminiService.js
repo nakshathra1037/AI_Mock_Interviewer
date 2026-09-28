@@ -84,15 +84,44 @@ export async function callGeminiJSON(prompt) {
 
   // If no API key is configured but ENABLE_MOCK_FALLBACK is true, generate simulated responses
   if (!apiKey) {
-    // Check if this is an evaluation or question generation prompt
-    if (prompt.includes("Your Task:\n1. Provide constructive, balanced feedback")) {
+    if (prompt.includes("end-of-session evaluation") || prompt.includes("overallStrengths")) {
       return {
-        feedback: "Good clarity and solid explanation! Your answer covered the essential concepts clearly. To improve further, consider mentioning potential trade-offs and performance implications.",
-        nextQuestion: "That makes sense. Can you explain how you would handle potential failure modes or edge cases in that implementation?"
+        overallStrengths: [
+          "Clear explanation of technical core concepts",
+          "Structured problem-solving approach"
+        ],
+        overallWeaknesses: [
+          "Needs more concrete metrics and specific code examples",
+          "Behavioral answers could better highlight individual actions"
+        ],
+        studyPlan: [
+          "Practice STAR framework response techniques for behavioral questions",
+          "Review database indexing and query optimization strategies"
+        ]
+      };
+    } else if (prompt.includes("weakestCategory")) {
+      const isBehavioral = prompt.includes("BEHAVIORAL");
+      return {
+        feedback: {
+          clarity: { score: 4, comment: "Explanation was easy to follow and coherent." },
+          technicalAccuracy: { score: 4, comment: "Accurate coverage of essential technical concepts." },
+          structure: { score: 3, comment: "Decent organization, though logical flow could be tighter." },
+          specificity: { score: 2, comment: "Lacks concrete code examples or operational details." }
+        },
+        weakestCategory: "specificity",
+        starAnalysis: isBehavioral ? {
+          situation: true,
+          task: true,
+          action: true,
+          result: false,
+          missingParts: ["Result"]
+        } : null,
+        nextQuestion: "Can you provide a specific code snippet or architectural diagram detail to illustrate your approach?"
       };
     } else {
       return {
-        question: "Could you walk me through your technical approach to building and structuring scalable APIs, and how you handle error logging and validation?"
+        question: "Could you walk me through your technical approach to building and structuring scalable APIs, and how you handle error logging and validation?",
+        questionType: "technical"
       };
     }
   }

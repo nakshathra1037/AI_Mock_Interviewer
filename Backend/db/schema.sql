@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS turns (
   question TEXT NOT NULL,
   answer TEXT,
   feedback TEXT,
+  questionType VARCHAR(20),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
