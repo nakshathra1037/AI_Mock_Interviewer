@@ -6,7 +6,27 @@ Unlike static quiz apps, **AI Mock Interviewer** engages candidates in a true mu
 
 ---
 
-## 🌟 Phase 3 Features (Current)
+## 🌟 Phase 4 Features (Current - Voice Interaction)
+
+- **🎙️ Mic Input for Answers (Speech-to-Text)**:
+  - Added speech-to-text mic input next to the answer textarea using the browser's built-in `SpeechRecognition` (`webkitSpeechRecognition`).
+  - Transcribes spoken answers directly into the existing answer input box in real time.
+  - Displays a live pulsing recording indicator (`"Listening... (Stop)"`) while capturing speech.
+  - Gracefully hides the mic button on unsupported browsers and shows a dismissible notice if mic permission is denied.
+- **🔊 Voice Questions with Text Fallback (Text-to-Speech)**:
+  - Questions formulated by the AI are read aloud automatically using `SpeechSynthesisUtterance`.
+  - Displays a `"🔊 Speaking..."` status indicator while audio plays.
+  - Provides a **"🔁 Replay"** button to re-listen anytime, and a **"Show Text"** button to reveal the question text on screen.
+  - Automatically falls back to immediate text display if speech synthesis is not supported.
+- **🎧 Continuous Session Audio Recording & Playback**:
+  - Captures the candidate's spoken practice session as continuous audio using `MediaRecorder` and `navigator.mediaDevices.getUserMedia({ audio: true })`.
+  - In-memory session audio Blob storage (no unnecessary server bloat or DB storage).
+  - Dedicated **Session Summary screen** rendered when clicking **"End Session & Review"**, complete with an HTML5 `<audio controls>` player and audio download button.
+  - Skips recording silently if microphone access is not granted, without interrupting the interview.
+
+---
+
+## 🌟 Phase 3 Features (Resume Intelligence)
 
 - **📄 Persistent Resume Upload & Extraction**:
   - Upload PDF or DOCX resumes (up to 5MB) parsed into plain text using `pdf-parse` and `mammoth` (`POST /api/resume/upload`).

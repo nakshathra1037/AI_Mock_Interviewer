@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header.jsx';
 import InterviewSetup from './components/InterviewSetup.jsx';
 import TranscriptView from './components/TranscriptView.jsx';
@@ -6,7 +6,8 @@ import AnswerInput from './components/AnswerInput.jsx';
 import AuthForm from './components/AuthForm.jsx';
 import SessionsList from './components/SessionsList.jsx';
 import ResumeManager from './components/ResumeManager.jsx';
-import { AlertCircle } from 'lucide-react';
+import SessionSummary from './components/SessionSummary.jsx';
+import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   // Authentication State (Stored in React state, NOT localStorage)
@@ -25,6 +26,16 @@ export default function App() {
   const [difficulty, setDifficulty] = useState('Junior');
   const [isStarted, setIsStarted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
+
+  // Phase 4: Voice & Audio Recording State
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState(null);
+  const [isRecordingSession, setIsRecordingSession] = useState(false);
+
+  const mediaRecorderRef = useRef(null);
+  const audioStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingAttemptRef = useRef(0);
 
   // Interview Loop State
   // conversationHistory tracks all { role: "assistant"|"user", content: string } turns
@@ -89,15 +100,127 @@ export default function App() {
   };
 
   /**
+   * Starts continuous microphone audio recording for the entire session.
+   * If mic access is denied or unavailable, skips recording gracefully without blocking.
+   */
+  const startSessionRecording = async () => {
+    if (
+      typeof window === 'undefined' ||
+      !navigator?.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === 'undefined'
+    ) {
+      return;
+    }
+
+    const recordingAttempt = ++recordingAttemptRef.current;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (recordingAttempt !== recordingAttemptRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      audioStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      let options = {};
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          options = { mimeType: 'audio/webm;codecs=opus' };
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          options = { mimeType: 'audio/webm' };
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          options = { mimeType: 'audio/mp4' };
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        if (audioChunksRef.current.length > 0) {
+          const mime = recorder.mimeType || 'audio/webm';
+          const blob = new Blob(audioChunksRef.current, { type: mime });
+          const url = URL.createObjectURL(blob);
+          setRecordedAudioUrl(url);
+        }
+        // Stop all mic tracks
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (e) {
+          // ignore
+        }
+      };
+
+      recorder.start(1000); // 1-second timeslices
+      setIsRecordingSession(true);
+    } catch (err) {
+      console.warn('getUserMedia mic recording not available or denied:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setErrorMessage('Microphone access was denied for session recording. You can still practice the interview.');
+      }
+    }
+  };
+
+  /**
+   * Stops continuous audio recording and releases mic tracks
+   */
+  const stopSessionRecording = () => {
+    recordingAttemptRef.current += 1;
+
+    // Stop any active speech synthesis
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Stop MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (err) {
+        console.warn('Error stopping MediaRecorder:', err);
+      }
+    }
+
+    // Release microphone tracks
+    if (audioStreamRef.current) {
+      try {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    setIsRecordingSession(false);
+  };
+
+  /**
    * Clears the stored JWT, user info, and resets current interview state.
    */
   const handleLogout = () => {
+    stopSessionRecording();
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl);
+    }
     setToken(null);
     setCurrentUser(null);
     setSessionId(null);
     setResumeInfo({ hasResume: false, fileName: null });
     setUseResume(false);
     setIsStarted(false);
+    setIsCompleted(false);
+    setRecordedAudioUrl(null);
     setTurns([]);
     setCurrentQuestion('');
     setConversationHistory([]);
@@ -106,13 +229,28 @@ export default function App() {
   };
 
   /**
-   * Starts a new interview session.
+   * Starts a new interview session and session audio recording.
+   * Triggered when candidate clicks the "Start Mock Interview" button.
    * Calls POST /api/generate-question with { role, difficulty, conversationHistory: [] }
-   * and Authorization: Bearer <token>.
-   * Receives { question, sessionId }.
+   * and starts continuous session audio recording right alongside the opening question call.
    */
-  const handleStartInterview = async () => {
-    if (!role.trim() || !token) return;
+  const handleStartInterview = async (e) => {
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
+    if (!role || !role.trim()) return;
+
+    // Reset recording and completion state
+    stopSessionRecording();
+    if (recordedAudioUrl) {
+      try {
+        URL.revokeObjectURL(recordedAudioUrl);
+      } catch (err) {
+        // ignore
+      }
+    }
+    setRecordedAudioUrl(null);
+    setIsCompleted(false);
 
     setIsLoading(true);
     setLoadingAction('generating');
@@ -123,12 +261,17 @@ export default function App() {
     setSessionId(null);
 
     try {
+      // Start recording from the exact same onClick handler right alongside the first question request
+      startSessionRecording();
+
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      };
+
       const response = await fetch('/api/generate-question', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers,
         body: JSON.stringify({
           role: role.trim(),
           difficulty,
@@ -162,6 +305,7 @@ export default function App() {
         { role: 'assistant', content: initialQuestion }
       ]);
     } catch (err) {
+      stopSessionRecording();
       console.error('Error starting interview:', err);
       setErrorMessage(err.message || 'Network error connecting to backend.');
     } finally {
@@ -256,9 +400,28 @@ export default function App() {
   };
 
   /**
+   * Concludes the active interview session, stops recording, and reveals the summary view.
+   */
+  const handleEndInterview = () => {
+    stopSessionRecording();
+    setIsCompleted(true);
+    setCurrentQuestion('');
+  };
+
+  /**
    * Resets the interview state back to setup mode.
    */
   const handleRestart = () => {
+    stopSessionRecording();
+    if (recordedAudioUrl) {
+      try {
+        URL.revokeObjectURL(recordedAudioUrl);
+      } catch (e) {
+        // ignore
+      }
+    }
+    setRecordedAudioUrl(null);
+    setIsCompleted(false);
     setIsStarted(false);
     setTurns([]);
     setCurrentQuestion('');
@@ -273,7 +436,10 @@ export default function App() {
         role={role}
         difficulty={difficulty}
         isStarted={isStarted}
+        isCompleted={isCompleted}
+        isRecordingSession={isRecordingSession}
         onRestart={handleRestart}
+        onEndInterview={handleEndInterview}
         currentUser={currentUser}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -337,7 +503,7 @@ export default function App() {
               />
             )}
 
-            {/* View 4: Interview Practice (Phase 1 core flow) */}
+            {/* View 4: Interview Practice (Phase 1 core flow + Phase 4 Voice & Summary) */}
             {activeTab === 'interview' && (
               <>
                 {!isStarted ? (
@@ -347,13 +513,47 @@ export default function App() {
                     difficulty={difficulty}
                     setDifficulty={setDifficulty}
                     onStart={handleStartInterview}
+                    onClick={handleStartInterview}
                     isLoading={isLoading}
                     hasResume={resumeInfo.hasResume}
                     useResume={useResume}
                     setUseResume={setUseResume}
                   />
+                ) : isCompleted ? (
+                  <SessionSummary
+                    role={role}
+                    difficulty={difficulty}
+                    turns={turns}
+                    recordedAudioUrl={recordedAudioUrl}
+                    onStartNewInterview={handleRestart}
+                    onViewPastSessions={() => setActiveTab('my-sessions')}
+                  />
                 ) : (
                   <div className="flex-1 flex flex-col justify-between">
+                    {/* Top Action Bar with End Session Button */}
+                    <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-800 text-xs">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <span className="font-semibold text-slate-300">Active Session:</span>
+                        <span>Turn #{turns.length + 1}</span>
+                        {isRecordingSession && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400 font-medium ml-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                            Recording audio
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        id="finish-interview-btn"
+                        onClick={handleEndInterview}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 hover:border-rose-600/60 text-xs font-semibold transition-all shadow-sm active:scale-95"
+                        title="Finish interview session to review feedback & listen to audio recording"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>End Session & Review</span>
+                      </button>
+                    </div>
+
                     <div className="flex-1 pb-4">
                       <TranscriptView
                         turns={turns}

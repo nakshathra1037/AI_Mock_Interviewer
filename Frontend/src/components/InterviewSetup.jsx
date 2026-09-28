@@ -29,20 +29,25 @@ const DIFFICULTY_INFO = {
 };
 
 export default function InterviewSetup({
-  role,
+  role = 'Backend Developer',
   setRole,
-  difficulty,
+  difficulty = 'Junior',
   setDifficulty,
   onStart,
-  isLoading,
+  onClick,
+  isLoading = false,
   hasResume = false,
   useResume = false,
   setUseResume
 }) {
+  const handleStart = onClick || onStart;
+
   const handleSubmit = (e) => {
-    e.preventDefault();
-    if (role.trim() && !isLoading) {
-      onStart();
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
+    if ((role || '').trim() && !isLoading && handleStart) {
+      handleStart(e);
     }
   };
 
@@ -182,7 +187,8 @@ export default function InterviewSetup({
           <button
             id="start-interview-btn"
             type="submit"
-            disabled={!role.trim() || isLoading}
+            onClick={handleSubmit}
+            disabled={!((role || '').trim()) || isLoading}
             className="w-full mt-4 flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/30 transition-all active:scale-[0.99]"
           >
             {isLoading ? (
