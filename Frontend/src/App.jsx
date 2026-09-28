@@ -7,7 +7,7 @@ import AuthForm from './components/AuthForm.jsx';
 import SessionsList from './components/SessionsList.jsx';
 import ResumeManager from './components/ResumeManager.jsx';
 import SessionSummary from './components/SessionSummary.jsx';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Trophy, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   // Authentication State (Stored in React state, NOT localStorage)
@@ -41,10 +41,15 @@ export default function App() {
   // conversationHistory tracks all { role: "assistant"|"user", content: string } turns
   const [conversationHistory, setConversationHistory] = useState([]);
   
-  // turns tracks the display list: { id, question, answer, feedback }
+  // turns tracks the display list: { id, question, questionType, answer, feedback }
   const [turns, setTurns] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
-  
+  const [currentQuestionType, setCurrentQuestionType] = useState('technical');
+
+  // Session Summary State (Phase 5)
+  const [sessionSummary, setSessionSummary] = useState(null);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+
   // UI & Loading State
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState('idle'); // 'generating' | 'evaluating' | 'idle'
@@ -173,7 +178,7 @@ export default function App() {
    * Stops continuous audio recording and releases mic tracks
    */
   const stopSessionRecording = () => {
-    recordingAttemptRef.current += 1;
+    recordingAttemptRef.current++;
 
     // Stop any active speech synthesis
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -200,6 +205,7 @@ export default function App() {
       } catch (e) {
         // ignore
       }
+      audioStreamRef.current = null;
     }
 
     setIsRecordingSession(false);
@@ -211,7 +217,11 @@ export default function App() {
   const handleLogout = () => {
     stopSessionRecording();
     if (recordedAudioUrl) {
-      URL.revokeObjectURL(recordedAudioUrl);
+      try {
+        URL.revokeObjectURL(recordedAudioUrl);
+      } catch (e) {
+        // ignore
+      }
     }
     setToken(null);
     setCurrentUser(null);
@@ -223,6 +233,8 @@ export default function App() {
     setRecordedAudioUrl(null);
     setTurns([]);
     setCurrentQuestion('');
+    setCurrentQuestionType('technical');
+    setSessionSummary(null);
     setConversationHistory([]);
     setActiveTab('interview');
     setErrorMessage(null);
@@ -232,7 +244,8 @@ export default function App() {
    * Starts a new interview session and session audio recording.
    * Triggered when candidate clicks the "Start Mock Interview" button.
    * Calls POST /api/generate-question with { role, difficulty, conversationHistory: [] }
-   * and starts continuous session audio recording right alongside the opening question call.
+   * and Authorization: Bearer <token>.
+   * Receives { question, questionType, sessionId }.
    */
   const handleStartInterview = async (e) => {
     if (e && e.preventDefault) {
@@ -258,20 +271,20 @@ export default function App() {
     setTurns([]);
     setConversationHistory([]);
     setCurrentQuestion('');
+    setCurrentQuestionType('technical');
+    setSessionSummary(null);
     setSessionId(null);
 
+    // Initiate continuous audio recording in background
+    startSessionRecording();
+
     try {
-      // Start recording from the exact same onClick handler right alongside the first question request
-      startSessionRecording();
-
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      };
-
       const response = await fetch('/api/generate-question', {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           role: role.trim(),
           difficulty,
@@ -292,7 +305,9 @@ export default function App() {
       }
 
       const initialQuestion = data.question;
+      const initialQuestionType = data.questionType || 'technical';
       setCurrentQuestion(initialQuestion);
+      setCurrentQuestionType(initialQuestionType);
       setIsStarted(true);
 
       // Save persistent sessionId returned by backend
@@ -305,7 +320,6 @@ export default function App() {
         { role: 'assistant', content: initialQuestion }
       ]);
     } catch (err) {
-      stopSessionRecording();
       console.error('Error starting interview:', err);
       setErrorMessage(err.message || 'Network error connecting to backend.');
     } finally {
@@ -316,13 +330,14 @@ export default function App() {
 
   /**
    * Submits candidate's answer.
-   * Sends full conversationHistory and sessionId to POST /api/evaluate-answer
+   * Sends full conversationHistory, questionType, and sessionId to POST /api/evaluate-answer
    * with Authorization: Bearer <token>.
    */
   const handleSubmitAnswer = async (answerText) => {
-    if (!answerText.trim() || !currentQuestion || !token) return;
+    if (!answerText.trim() || !currentQuestion) return;
 
     const questionAsked = currentQuestion;
+    const qType = currentQuestionType;
     const turnId = Date.now();
 
     // Prepare updated history with user's answer included
@@ -336,6 +351,7 @@ export default function App() {
     const newTurn = {
       id: turnId,
       question: questionAsked,
+      questionType: qType,
       answer: answerText,
       feedback: null
     };
@@ -350,7 +366,7 @@ export default function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           question: questionAsked,
@@ -358,7 +374,8 @@ export default function App() {
           conversationHistory: updatedHistory,
           role,
           difficulty,
-          sessionId
+          sessionId,
+          questionType: qType
         }),
       });
 
@@ -375,13 +392,15 @@ export default function App() {
 
       const { feedback, nextQuestion } = data;
 
-      // Update turn with feedback
+      // Update turn with structured feedback
       setTurns((prev) =>
         prev.map((t) => (t.id === turnId ? { ...t, feedback } : t))
       );
 
       // Set the next follow-up question
       setCurrentQuestion(nextQuestion);
+      // Determine next question type
+      setCurrentQuestionType(data.questionType || 'technical');
 
       // Update full history with assistant's next question
       setConversationHistory([
@@ -400,12 +419,51 @@ export default function App() {
   };
 
   /**
-   * Concludes the active interview session, stops recording, and reveals the summary view.
+   * Concludes the interview session, stops recording, and generates the overall performance summary.
+   * Calls POST /api/session-summary with { sessionId }.
    */
-  const handleEndInterview = () => {
+  const handleEndInterview = async () => {
     stopSessionRecording();
-    setIsCompleted(true);
-    setCurrentQuestion('');
+
+    if (!sessionId || !token || turns.length === 0) {
+      setIsCompleted(true);
+      setCurrentQuestion('');
+      return;
+    }
+
+    setIsEndingSession(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch('/api/session-summary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ sessionId })
+      });
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate session summary.');
+      }
+
+      setSessionSummary(data);
+    } catch (err) {
+      console.error('Error concluding session summary:', err);
+      setErrorMessage(err.message || 'Could not generate session summary.');
+    } finally {
+      setIsEndingSession(false);
+      setIsCompleted(true);
+      setCurrentQuestion('');
+    }
   };
 
   /**
@@ -425,6 +483,8 @@ export default function App() {
     setIsStarted(false);
     setTurns([]);
     setCurrentQuestion('');
+    setCurrentQuestionType('technical');
+    setSessionSummary(null);
     setConversationHistory([]);
     setSessionId(null);
     setErrorMessage(null);
@@ -436,7 +496,7 @@ export default function App() {
         role={role}
         difficulty={difficulty}
         isStarted={isStarted}
-        isCompleted={isCompleted}
+        isCompleted={isCompleted || Boolean(sessionSummary)}
         isRecordingSession={isRecordingSession}
         onRestart={handleRestart}
         onEndInterview={handleEndInterview}
@@ -490,7 +550,10 @@ export default function App() {
               <SessionsList
                 token={token}
                 isTeamView={false}
-                onStartNewInterview={() => setActiveTab('interview')}
+                onStartNewInterview={() => {
+                  handleRestart();
+                  setActiveTab('interview');
+                }}
               />
             )}
 
@@ -499,11 +562,14 @@ export default function App() {
               <SessionsList
                 token={token}
                 isTeamView={true}
-                onStartNewInterview={() => setActiveTab('interview')}
+                onStartNewInterview={() => {
+                  handleRestart();
+                  setActiveTab('interview');
+                }}
               />
             )}
 
-            {/* View 4: Interview Practice (Phase 1 core flow + Phase 4 Voice & Summary) */}
+            {/* View 4: Interview Practice (Phase 1-5 core flow) */}
             {activeTab === 'interview' && (
               <>
                 {!isStarted ? (
@@ -519,40 +585,56 @@ export default function App() {
                     useResume={useResume}
                     setUseResume={setUseResume}
                   />
-                ) : isCompleted ? (
+                ) : isCompleted || sessionSummary ? (
+                  /* Combined End-of-Session Summary & Audio Playback */
                   <SessionSummary
+                    summary={sessionSummary}
                     role={role}
                     difficulty={difficulty}
                     turns={turns}
+                    turnsCount={turns.length}
                     recordedAudioUrl={recordedAudioUrl}
+                    onRestart={handleRestart}
                     onStartNewInterview={handleRestart}
                     onViewPastSessions={() => setActiveTab('my-sessions')}
                   />
                 ) : (
                   <div className="flex-1 flex flex-col justify-between">
-                    {/* Top Action Bar with End Session Button */}
-                    <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-800 text-xs">
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <span className="font-semibold text-slate-300">Active Session:</span>
-                        <span>Turn #{turns.length + 1}</span>
-                        {isRecordingSession && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400 font-medium ml-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                            Recording audio
+                    {/* Header bar during active interview with End Interview button */}
+                    {turns.length > 0 && (
+                      <div className="mb-4 flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <span className="font-medium text-slate-300">
+                            Completed Turns: <strong className="text-slate-200">{turns.length}</strong>
                           </span>
-                        )}
+                          {isRecordingSession && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-rose-400 font-medium ml-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                              Recording audio
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          id="finish-interview-btn"
+                          onClick={handleEndInterview}
+                          disabled={isLoading || isEndingSession}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all disabled:opacity-50 active:scale-95"
+                          title="Finish interview session to review feedback & listen to audio recording"
+                        >
+                          {isEndingSession ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Generating Summary...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trophy className="w-3.5 h-3.5" />
+                              <span>End Interview & Review</span>
+                            </>
+                          )}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        id="finish-interview-btn"
-                        onClick={handleEndInterview}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 hover:border-rose-600/60 text-xs font-semibold transition-all shadow-sm active:scale-95"
-                        title="Finish interview session to review feedback & listen to audio recording"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-rose-400" />
-                        <span>End Session & Review</span>
-                      </button>
-                    </div>
+                    )}
 
                     <div className="flex-1 pb-4">
                       <TranscriptView
@@ -567,7 +649,7 @@ export default function App() {
                     {currentQuestion && (
                       <AnswerInput
                         onSubmit={handleSubmitAnswer}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isEndingSession}
                         disabled={Boolean(errorMessage && !currentQuestion)}
                       />
                     )}
@@ -581,4 +663,3 @@ export default function App() {
     </div>
   );
 }
-

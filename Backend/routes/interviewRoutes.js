@@ -3,7 +3,8 @@ import {
   DIFFICULTY_GUIDANCE,
   buildQuestionPrompt,
   buildEvaluationPrompt,
-  buildResumeTailoredQuestionPrompt
+  buildResumeTailoredQuestionPrompt,
+  buildSessionSummaryPrompt
 } from "../prompts/interviewPrompts.js";
 import { callGeminiJSON } from "../services/geminiService.js";
 import pool from "../db/connection.js";
@@ -17,7 +18,7 @@ router.use(authenticateToken);
 /**
  * POST /api/generate-question
  * Request Body: { role: string, difficulty: string, conversationHistory?: Array, sessionId?: number, useResume?: boolean }
- * Response: { question: string, sessionId?: number }
+ * Response: { question: string, questionType: string, sessionId?: number }
  */
 router.post("/generate-question", async (req, res) => {
   try {
@@ -76,6 +77,11 @@ router.post("/generate-question", async (req, res) => {
       throw new Error("LLM response did not contain a 'question' field.");
     }
 
+    const questionType =
+      result.questionType && ["technical", "behavioral"].includes(result.questionType.toLowerCase())
+        ? result.questionType.toLowerCase()
+        : "technical";
+
     let activeSessionId = existingSessionId || null;
 
     // If starting a new session (empty conversation history), persist a new row in `sessions`
@@ -94,6 +100,7 @@ router.post("/generate-question", async (req, res) => {
 
     return res.json({
       question: result.question.trim(),
+      questionType,
       sessionId: activeSessionId
     });
   } catch (err) {
@@ -106,8 +113,8 @@ router.post("/generate-question", async (req, res) => {
 
 /**
  * POST /api/evaluate-answer
- * Request Body: { question: string, answer: string, conversationHistory?: Array, role?: string, difficulty?: string, sessionId?: number }
- * Response: { feedback: string, nextQuestion: string }
+ * Request Body: { question: string, answer: string, conversationHistory?: Array, role?: string, difficulty?: string, sessionId?: number, questionType?: string }
+ * Response: { feedback: object, nextQuestion: string }
  */
 router.post("/evaluate-answer", async (req, res) => {
   try {
@@ -117,7 +124,8 @@ router.post("/evaluate-answer", async (req, res) => {
       conversationHistory = [],
       role = "Candidate",
       difficulty = "Junior",
-      sessionId
+      sessionId,
+      questionType = "technical"
     } = req.body;
 
     // Validate required fields
@@ -129,13 +137,19 @@ router.post("/evaluate-answer", async (req, res) => {
       return res.status(400).json({ error: "Missing or invalid 'answer' in request body." });
     }
 
-    // Build evaluation prompt using conversation history for full context
+    const normalizedQuestionType =
+      questionType && ["technical", "behavioral"].includes(questionType.toLowerCase())
+        ? questionType.toLowerCase()
+        : "technical";
+
+    // Build evaluation prompt using conversation history & questionType
     const prompt = buildEvaluationPrompt(
       role,
       difficulty,
       question.trim(),
       answer.trim(),
-      conversationHistory
+      conversationHistory,
+      normalizedQuestionType
     );
 
     // Call Gemini API and receive parsed JSON
@@ -147,12 +161,56 @@ router.post("/evaluate-answer", async (req, res) => {
       );
     }
 
+    // Process and normalize structured feedback
+    let feedbackObject = result.feedback;
+    if (typeof feedbackObject === "string") {
+      // Fallback if LLM returned plain text instead of object
+      feedbackObject = {
+        clarity: { score: 3, comment: feedbackObject },
+        technicalAccuracy: { score: 3, comment: feedbackObject },
+        structure: { score: 3, comment: feedbackObject },
+        specificity: { score: 3, comment: feedbackObject }
+      };
+    }
+
+    // Defensive starAnalysis validation & fallback to null on error
+    let starAnalysis = result.starAnalysis || null;
+    if (normalizedQuestionType === "behavioral" && starAnalysis) {
+      try {
+        starAnalysis = {
+          situation: Boolean(starAnalysis.situation),
+          task: Boolean(starAnalysis.task),
+          action: Boolean(starAnalysis.action),
+          result: Boolean(starAnalysis.result),
+          missingParts: Array.isArray(starAnalysis.missingParts)
+            ? starAnalysis.missingParts
+            : []
+        };
+      } catch (e) {
+        console.warn("Failed to parse starAnalysis for behavioral question, falling back to null:", e.message);
+        starAnalysis = null;
+      }
+    } else {
+      starAnalysis = null;
+    }
+
+    const weakestCategory = result.weakestCategory || "technicalAccuracy";
+
+    const structuredFeedback = {
+      feedback: feedbackObject,
+      weakestCategory,
+      starAnalysis
+    };
+
+    // Store structured feedback as JSON text in the existing turns.feedback column
+    const feedbackTextToStore = JSON.stringify(structuredFeedback);
+
     // Persist turn in `turns` table if sessionId is provided
     if (sessionId) {
       try {
         await pool.query(
-          "INSERT INTO turns (session_id, question, answer, feedback) VALUES (?, ?, ?, ?)",
-          [sessionId, question.trim(), answer.trim(), result.feedback.trim()]
+          "INSERT INTO turns (session_id, question, answer, feedback, questionType) VALUES (?, ?, ?, ?, ?)",
+          [sessionId, question.trim(), answer.trim(), feedbackTextToStore, normalizedQuestionType]
         );
       } catch (dbErr) {
         console.error("Database error saving turn:", dbErr.message);
@@ -161,13 +219,79 @@ router.post("/evaluate-answer", async (req, res) => {
     }
 
     return res.json({
-      feedback: result.feedback.trim(),
+      feedback: structuredFeedback,
       nextQuestion: result.nextQuestion.trim()
     });
   } catch (err) {
     console.error("Error in /api/evaluate-answer:", err.message);
     return res.status(500).json({
       error: err.message || "Failed to evaluate answer. Please try again."
+    });
+  }
+});
+
+/**
+ * POST /api/session-summary
+ * Request Body: { sessionId: number }
+ * Response: { overallStrengths: string[], overallWeaknesses: string[], studyPlan: string[] }
+ */
+router.post("/session-summary", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing required 'sessionId' in request body." });
+    }
+
+    // Verify session belongs to req.userId
+    const [sessionRows] = await pool.query(
+      "SELECT id, user_id FROM sessions WHERE id = ? AND user_id = ?",
+      [sessionId, req.userId]
+    );
+
+    if (!sessionRows || sessionRows.length === 0) {
+      return res.status(404).json({ error: "Session not found or unauthorized access." });
+    }
+
+    // Lookup all turns for that session from database
+    const [turns] = await pool.query(
+      "SELECT question, answer, feedback FROM turns WHERE session_id = ? ORDER BY created_at ASC, id ASC",
+      [sessionId]
+    );
+
+    // Defensive error handling: zero turns -> clear 400
+    if (!turns || turns.length === 0) {
+      return res.status(400).json({
+        error: "Cannot generate session summary: No answered questions recorded for this session."
+      });
+    }
+
+    const prompt = buildSessionSummaryPrompt(turns);
+    const result = await callGeminiJSON(prompt);
+
+    if (!result) {
+      throw new Error("Failed to receive session summary from LLM.");
+    }
+
+    const overallStrengths = Array.isArray(result.overallStrengths)
+      ? result.overallStrengths
+      : ["Clear participation throughout interview"];
+    const overallWeaknesses = Array.isArray(result.overallWeaknesses)
+      ? result.overallWeaknesses
+      : ["Consider adding more concrete examples"];
+    const studyPlan = Array.isArray(result.studyPlan)
+      ? result.studyPlan
+      : ["Review role core concepts and STAR behavioral framework"];
+
+    return res.json({
+      overallStrengths,
+      overallWeaknesses,
+      studyPlan
+    });
+  } catch (err) {
+    console.error("Error in /api/session-summary:", err.message);
+    return res.status(500).json({
+      error: err.message || "Failed to generate session summary."
     });
   }
 });
