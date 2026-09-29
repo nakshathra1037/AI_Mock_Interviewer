@@ -47,7 +47,7 @@ export default function SessionSummary({
       </div>
 
       {/* Overview Stat Badges */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className={`grid gap-3 ${recordedAudioUrl ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
         <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
             <Briefcase className="w-5 h-5 text-indigo-400" />
@@ -78,21 +78,23 @@ export default function SessionSummary({
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-600/20 border border-amber-500/30 flex items-center justify-center shrink-0">
-            <Headphones className="w-5 h-5 text-amber-400" />
+        {recordedAudioUrl && (
+          <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-600/20 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <Headphones className="w-5 h-5 text-amber-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-400 font-medium">Audio Recording</p>
+              <p className="text-xs sm:text-sm font-semibold text-slate-200">
+                Captured
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-[11px] text-slate-400 font-medium">Audio Recording</p>
-            <p className="text-xs sm:text-sm font-semibold text-slate-200">
-              {recordedAudioUrl ? 'Captured' : 'Unavailable'}
-            </p>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Phase 4 Session Audio Playback Player (Shown if a recording was captured) */}
-      {recordedAudioUrl ? (
+      {/* Phase 4 Session Audio Playback Player (Only shown if a recording was actually made) */}
+      {recordedAudioUrl && (
         <div className="glass-panel p-6 rounded-2xl border border-indigo-500/30 shadow-xl space-y-4 bg-gradient-to-br from-indigo-950/30 via-slate-900/60 to-slate-900/80">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
             <div className="flex items-center gap-3">
@@ -133,13 +135,6 @@ export default function SessionSummary({
               Your browser does not support the audio element.
             </audio>
           </div>
-        </div>
-      ) : (
-        <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-400 text-xs flex items-center gap-3">
-          <VolumeX className="w-4 h-4 text-slate-500 shrink-0" />
-          <span>
-            No session audio was captured (microphone permission was not granted or audio recording was unavailable).
-          </span>
         </div>
       )}
 

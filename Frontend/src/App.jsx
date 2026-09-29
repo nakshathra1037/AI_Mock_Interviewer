@@ -31,6 +31,7 @@ export default function App() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState(null);
   const [isRecordingSession, setIsRecordingSession] = useState(false);
+  const [recordSession, setRecordSession] = useState(false); // Default: unchecked opt-in
 
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
@@ -275,8 +276,10 @@ export default function App() {
     setSessionSummary(null);
     setSessionId(null);
 
-    // Initiate continuous audio recording in background
-    startSessionRecording();
+    // Initiate continuous audio recording in background ONLY if candidate opted-in
+    if (recordSession) {
+      startSessionRecording();
+    }
 
     try {
       const response = await fetch('/api/generate-question', {
@@ -584,6 +587,8 @@ export default function App() {
                     hasResume={resumeInfo.hasResume}
                     useResume={useResume}
                     setUseResume={setUseResume}
+                    recordSession={recordSession}
+                    setRecordSession={setRecordSession}
                   />
                 ) : isCompleted || sessionSummary ? (
                   /* Combined End-of-Session Summary & Audio Playback */

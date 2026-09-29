@@ -38,7 +38,9 @@ export default function InterviewSetup({
   isLoading = false,
   hasResume = false,
   useResume = false,
-  setUseResume
+  setUseResume,
+  recordSession = false,
+  setRecordSession
 }) {
   const handleStart = onClick || onStart;
 
@@ -178,6 +180,32 @@ export default function InterviewSetup({
                   {hasResume
                     ? 'The AI interviewer will ask questions that reference your actual projects, technologies, and achievements.'
                     : 'Upload your resume in the Resume tab to unlock questions tailored to your specific background.'}
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Opt-in Session Audio Recording Toggle */}
+          <div className="p-4 rounded-xl border bg-slate-900/60 border-slate-700/80 hover:border-indigo-500/50 transition-all">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                id="record-session-checkbox"
+                checked={recordSession}
+                onChange={(e) => setRecordSession && setRecordSession(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-200">
+                    Record this session (audio)
+                  </span>
+                  <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    Opt-in
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Records your spoken answers during this session so you can listen back to them on the summary screen. If unchecked, no microphone recording takes place.
                 </p>
               </div>
             </label>
