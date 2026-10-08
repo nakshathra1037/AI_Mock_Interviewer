@@ -1,12 +1,18 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import interviewRoutes from "./routes/interviewRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import resumeRoutes from "./routes/resumeRoutes.js";
 import { initDB } from "./db/init.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Load environment variables from .env file
+dotenv.config({ path: path.resolve(__dirname, ".env") });
 dotenv.config();
 
 const app = express();
